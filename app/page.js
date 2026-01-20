@@ -1,18 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function Home() {
   const [message, setMessage] = useState("");
   const [log, setLog] = useState([]);
   const [loading, setLoading] = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [log]);
 
   async function send() {
-    const text = message.trim();
-    if (!text || loading) return;
+    if (!message.trim() || loading) return;
 
-    setLog((l) => [...l, { role: "user", text }]);
+    const text = message.trim();
     setMessage("");
+    setLog((l) => [...l, { role: "user", text }]);
     setLoading(true);
 
     try {
@@ -21,33 +26,44 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text })
       });
-      const data = await r.json();
 
-      if (!r.ok) throw new Error(data?.error || "Något gick fel");
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error);
 
       setLog((l) => [...l, { role: "assistant", text: data.reply }]);
     } catch (e) {
-      setLog((l) => [...l, { role: "assistant", text: `Fel: ${e.message}` }]);
+      setLog((l) => [
+        ...l,
+        { role: "assistant", text: "⚠️ Något gick fel." }
+      ]);
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main style={{ maxWidth: 720, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
-      <h1>Tullassistent</h1>
+    <main style={{ maxWidth: 760, margin: "40px auto", padding: 16 }}>
+      <h1>🚢 Tullassistent</h1>
 
-      <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12, minHeight: 320 }}>
-        {log.length === 0 ? (
-          <p>Ställ en fråga om tull, import eller export.</p>
-        ) : (
-          log.map((m, i) => (
-            <div key={i} style={{ margin: "12px 0" }}>
-              <div style={{ fontWeight: 700 }}>{m.role === "user" ? "Du" : "Assistent"}</div>
-              <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
-            </div>
-          ))
-        )}
+      <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16 }}>
+        {log.map((m, i) => (
+          <div
+            key={i}
+            style={{
+              maxWidth: "80%",
+              margin: "12px 0",
+              marginLeft: m.role === "user" ? "auto" : 0,
+              padding: 12,
+              borderRadius: 12,
+              background: m.role === "user" ? "#0070f3" : "#f2f2f2",
+              color: m.role === "user" ? "white" : "black"
+            }}
+          >
+            {m.text}
+          </div>
+        ))}
+        {loading && <div>✍️ Assistenten skriver…</div>}
+        <div ref={bottomRef} />
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
@@ -55,17 +71,11 @@ export default function Home() {
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Skriv din fråga…"
-          style={{ flex: 1, padding: 12, borderRadius: 10, border: "1px solid #ddd" }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") send();
-          }}
+          onKeyDown={(e) => e.key === "Enter" && send()}
+          style={{ flex: 1, padding: 12 }}
         />
-        <button
-          onClick={send}
-          disabled={loading}
-          style={{ padding: "12px 16px", borderRadius: 10, border: "1px solid #ddd" }}
-        >
-          {loading ? "Skickar…" : "Skicka"}
+        <button onClick={send} disabled={loading}>
+          Skicka
         </button>
       </div>
     </main>
