@@ -21,13 +21,18 @@ export async function POST(req) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: message }
-        ]
-      })
-    });
+  model: "gpt-4o-mini",
+  input: [
+    {
+      role: "system",
+      content: system
+    },
+    {
+      role: "user",
+      content: message
+    }
+  ]
+})
 
     const data = await r.json();
 
