@@ -127,6 +127,13 @@ export default function Home() {
         <h1 style={{ margin: 0 }}>Tullassistent</h1>
       </header>
 
+  <button
+  onClick={restart}
+  disabled={loading}
+>
+  Nytt ärende
+</button>
+
       <div style={{ border: "1px solid #e5e7eb", borderRadius: 16, padding: 16, background: "#fff" }}>
         {log.length === 0 ? (
           <p style={{ margin: 0, color: "#6b7280" }}>
