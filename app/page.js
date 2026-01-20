@@ -18,12 +18,6 @@ function SectionCard({ title, children }) {
   );
 }
 
-function restart() {
-  setLog([]);
-  setMessage("");
-  setLoading(false);
-}
-
 function Bullets({ items }) {
   if (!Array.isArray(items) || items.length === 0) return <div>—</div>;
   return (
@@ -126,13 +120,6 @@ export default function Home() {
         <div style={{ fontSize: 28 }}>🚢</div>
         <h1 style={{ margin: 0 }}>Tullassistent</h1>
       </header>
-
-  <button
-  onClick={restart}
-  disabled={loading}
->
-  Nytt ärende
-</button>
 
       <div style={{ border: "1px solid #e5e7eb", borderRadius: 16, padding: 16, background: "#fff" }}>
         {log.length === 0 ? (
