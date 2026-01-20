@@ -1,29 +1,51 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+function IconButton({ onClick, disabled, title, children }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      style={{
+        padding: "10px 12px",
+        borderRadius: 14,
+        border: "1px solid var(--border)",
+        background: "var(--panel)",
+        cursor: disabled ? "not-allowed" : "pointer",
+        boxShadow: "var(--shadow)"
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
 function SectionCard({ title, children }) {
   return (
     <section
       style={{
-        border: "1px solid #e5e7eb",
-        borderRadius: 14,
+        border: "1px solid var(--border)",
+        borderRadius: 18,
         padding: 14,
-        background: "white"
+        background: "var(--panel)",
+        boxShadow: "var(--shadow)"
       }}
     >
-      <div style={{ fontWeight: 800, marginBottom: 10 }}>{title}</div>
+      <div style={{ fontWeight: 850, marginBottom: 10 }}>{title}</div>
       {children}
     </section>
   );
 }
 
 function Bullets({ items }) {
-  if (!Array.isArray(items) || items.length === 0) return <div>—</div>;
+  if (!Array.isArray(items) || items.length === 0) return <div style={{ color: "var(--muted)" }}>—</div>;
   return (
-    <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 6 }}>
+    <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 8 }}>
       {items.map((x, i) => (
-        <li key={i} style={{ lineHeight: 1.35 }}>
+        <li key={i} style={{ lineHeight: 1.4 }}>
           {x}
         </li>
       ))}
@@ -46,30 +68,33 @@ function CopyBox({ text }) {
     <div>
       <div
         style={{
-          border: "1px solid #e5e7eb",
-          borderRadius: 12,
+          border: "1px solid var(--border)",
+          borderRadius: 16,
           padding: 12,
-          background: "#f9fafb",
+          background: "var(--code-bg)",
           whiteSpace: "pre-wrap",
           fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
           fontSize: 13,
-          lineHeight: 1.45
+          lineHeight: 1.5
         }}
       >
         {text || "—"}
       </div>
-      <button
-        onClick={copy}
-        style={{
-          marginTop: 8,
-          padding: "10px 12px",
-          borderRadius: 10,
-          border: "1px solid #e5e7eb",
-          cursor: "pointer"
-        }}
-      >
-        {copied ? "Kopierat ✅" : "Kopiera tulltext"}
-      </button>
+
+      <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+        <button
+          onClick={copy}
+          style={{
+            padding: "10px 12px",
+            borderRadius: 14,
+            border: "1px solid var(--border)",
+            background: "var(--panel)",
+            cursor: "pointer"
+          }}
+        >
+          {copied ? "Kopierat ✅" : "Kopiera tulltext"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -78,9 +103,41 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [log, setLog] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [theme, setTheme] = useState("system"); // "light" | "dark" | "system"
   const bottomRef = useRef(null);
 
-  // ✅ Restart måste ligga INUTI komponenten (så den kan använda setLog osv)
+  // ---- Theme handling (no extra libs)
+  useEffect(() => {
+    const saved = localStorage.getItem("theme");
+    if (saved === "light" || saved === "dark" || saved === "system") setTheme(saved);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("theme", theme);
+
+    const root = document.documentElement;
+    const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
+
+    const resolved =
+      theme === "system" ? (prefersDark ? "dark" : "light") : theme;
+
+    root.dataset.theme = resolved;
+  }, [theme]);
+
+  function toggleTheme() {
+    setTheme((t) => {
+      if (t === "system") return "dark";
+      if (t === "dark") return "light";
+      return "system";
+    });
+  }
+
+  const themeLabel = useMemo(() => {
+    if (theme === "system") return "Tema: System";
+    if (theme === "dark") return "Tema: Mörkt";
+    return "Tema: Ljust";
+  }, [theme]);
+
   function restart() {
     setLog([]);
     setMessage("");
@@ -95,11 +152,7 @@ export default function Home() {
     const text = message.trim();
     if (!text || loading) return;
 
-    // Ta en snapshot av loggen FÖRE vi lägger till nya user-meddelandet
-    const history = log.map((m) => ({
-      role: m.role,
-      content: m.text
-    }));
+    const history = log.map((m) => ({ role: m.role, content: m.text }));
 
     setLog((l) => [...l, { role: "user", text }]);
     setMessage("");
@@ -109,7 +162,6 @@ export default function Home() {
       const r = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // ✅ Skicka med history så boten kan fortsätta samma ärende
         body: JSON.stringify({ message: text, history })
       });
 
@@ -120,10 +172,7 @@ export default function Home() {
         throw new Error("Tomt svar från servern.");
       }
 
-      setLog((l) => [
-        ...l,
-        { role: "assistant", text: data.reply, structured: data.structured }
-      ]);
+      setLog((l) => [...l, { role: "assistant", text: data.reply, structured: data.structured }]);
     } catch (e) {
       setLog((l) => [...l, { role: "assistant", text: `Fel: ${e.message}` }]);
     } finally {
@@ -132,44 +181,89 @@ export default function Home() {
   }
 
   return (
-    <main style={{ maxWidth: 860, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
-      <header
+    <main style={{ maxWidth: 980, margin: "38px auto", padding: 16 }}>
+      {/* Hero */}
+      <div
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          marginBottom: 14
+          position: "relative",
+          height: 240,
+          borderRadius: 22,
+          overflow: "hidden",
+          border: "1px solid var(--border)",
+          boxShadow: "var(--shadow)"
         }}
       >
-        <div style={{ fontSize: 28 }}>🚢</div>
-        <h1 style={{ margin: 0 }}>Tullassistent</h1>
-
-        {/* ✅ Knappen ligger snyggt i headern */}
-        <button
-          onClick={restart}
-          disabled={loading}
+        {/* Lägg bilden i /public/svinesund.jpg */}
+        <Image
+          src="/svinesund.jpg"
+          alt="Svinesundsbron mellan Sverige och Norge"
+          fill
+          priority
+          style={{ objectFit: "cover" }}
+        />
+        {/* overlay */}
+        <div
           style={{
-            marginLeft: "auto",
-            padding: "10px 12px",
-            borderRadius: 12,
-            border: "1px solid #e5e7eb",
-            cursor: "pointer"
+            position: "absolute",
+            inset: 0,
+            background:
+              "linear-gradient(90deg, rgba(0,0,0,0.60) 0%, rgba(0,0,0,0.20) 55%, rgba(0,0,0,0.05) 100%)"
           }}
-          title="Rensar chatten och startar nytt ärende"
-        >
-          Nytt ärende
-        </button>
-      </header>
+        />
 
-      <div style={{ border: "1px solid #e5e7eb", borderRadius: 16, padding: 16, background: "#fff" }}>
+        {/* Title area */}
+        <div style={{ position: "absolute", left: 18, right: 18, bottom: 18 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              justifyContent: "space-between"
+            }}
+          >
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 26 }}>🚚</div>
+                <h1 style={{ margin: 0, color: "white", fontSize: 26, letterSpacing: -0.3 }}>
+                  Tullassistent
+                </h1>
+              </div>
+              <p style={{ margin: "6px 0 0", color: "rgba(255,255,255,0.82)", fontSize: 14 }}>
+                Svensk–norsk tull · import · export · transiter (T1/T2)
+              </p>
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <IconButton onClick={toggleTheme} disabled={loading} title={themeLabel}>
+                🌓
+              </IconButton>
+              <IconButton onClick={restart} disabled={loading} title="Rensar chatten och startar nytt ärende">
+                Nytt ärende
+              </IconButton>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Chat panel */}
+      <div
+        style={{
+          marginTop: 18,
+          border: "1px solid var(--border)",
+          borderRadius: 22,
+          padding: 16,
+          background: "var(--panel)",
+          boxShadow: "var(--shadow)"
+        }}
+      >
         {log.length === 0 ? (
-          <p style={{ margin: 0, color: "#6b7280" }}>
-            Beskriv ett ärende (import/export/transit) så ställer jag kontrollfrågor och tar fram HS-kod m.m.
-          </p>
+          <div style={{ color: "var(--muted)", lineHeight: 1.5 }}>
+            Beskriv ett ärende (import/export/transit). Jag börjar alltid med kontrollfrågor, därefter HS6, krav, tulltext och checklista.
+          </div>
         ) : (
           log.map((m, i) => (
             <div key={i} style={{ margin: "14px 0" }}>
-              <div style={{ fontWeight: 800, marginBottom: 8 }}>
+              <div style={{ fontWeight: 850, marginBottom: 8, color: "var(--muted)" }}>
                 {m.role === "user" ? "Du" : "Assistent"}
               </div>
 
@@ -177,12 +271,13 @@ export default function Home() {
                 <div
                   style={{
                     marginLeft: "auto",
-                    background: "#2563eb",
+                    background: "linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%)",
                     color: "white",
                     padding: 12,
-                    borderRadius: 14,
-                    maxWidth: "85%",
-                    whiteSpace: "pre-wrap"
+                    borderRadius: 18,
+                    maxWidth: "88%",
+                    whiteSpace: "pre-wrap",
+                    boxShadow: "var(--shadow)"
                   }}
                 >
                   {m.text}
@@ -220,11 +315,12 @@ export default function Home() {
               ) : (
                 <div
                   style={{
-                    background: "#f3f4f6",
+                    background: "var(--code-bg)",
                     padding: 12,
-                    borderRadius: 14,
+                    borderRadius: 18,
                     whiteSpace: "pre-wrap",
-                    lineHeight: 1.5
+                    lineHeight: 1.55,
+                    border: "1px solid var(--border)"
                   }}
                 >
                   {m.text}
@@ -234,37 +330,41 @@ export default function Home() {
           ))
         )}
 
-        {loading && <div style={{ marginTop: 10, color: "#6b7280" }}>✍️ Assistenten skriver…</div>}
+        {loading && <div style={{ marginTop: 10, color: "var(--muted)" }}>✍️ Assistenten skriver…</div>}
         <div ref={bottomRef} />
-      </div>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <input
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="Skriv din fråga…"
-          style={{
-            flex: 1,
-            padding: 12,
-            borderRadius: 12,
-            border: "1px solid #e5e7eb"
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") send();
-          }}
-        />
-        <button
-          onClick={send}
-          disabled={loading}
-          style={{
-            padding: "12px 16px",
-            borderRadius: 12,
-            border: "1px solid #e5e7eb",
-            cursor: "pointer"
-          }}
-        >
-          {loading ? "Skickar…" : "Skicka"}
-        </button>
+        {/* Input row */}
+        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+          <input
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Skriv din fråga…"
+            style={{
+              flex: 1,
+              padding: 12,
+              borderRadius: 16
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") send();
+            }}
+          />
+          <button
+            onClick={send}
+            disabled={loading}
+            style={{
+              padding: "12px 16px",
+              borderRadius: 16,
+              border: "1px solid var(--border)",
+              cursor: "pointer"
+            }}
+          >
+            {loading ? "Skickar…" : "Skicka"}
+          </button>
+        </div>
+
+        <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 12, lineHeight: 1.4 }}>
+          Tips: Klicka <b>Nytt ärende</b> för att rensa chatten. Klicka 🌓 för att växla tema (System → Mörkt → Ljust).
+        </div>
       </div>
     </main>
   );
