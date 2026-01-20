@@ -18,6 +18,12 @@ function SectionCard({ title, children }) {
   );
 }
 
+function restart() {
+  setLog([]);
+  setMessage("");
+  setLoading(false);
+}
+
 function Bullets({ items }) {
   if (!Array.isArray(items) || items.length === 0) return <div>—</div>;
   return (
