@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function SectionCard({ title, children }) {
   return (
@@ -80,6 +80,13 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
 
+  // ✅ Restart måste ligga INUTI komponenten (så den kan använda setLog osv)
+  function restart() {
+    setLog([]);
+    setMessage("");
+    setLoading(false);
+  }
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [log, loading]);
@@ -87,6 +94,12 @@ export default function Home() {
   async function send() {
     const text = message.trim();
     if (!text || loading) return;
+
+    // Ta en snapshot av loggen FÖRE vi lägger till nya user-meddelandet
+    const history = log.map((m) => ({
+      role: m.role,
+      content: m.text
+    }));
 
     setLog((l) => [...l, { role: "user", text }]);
     setMessage("");
@@ -96,7 +109,8 @@ export default function Home() {
       const r = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text })
+        // ✅ Skicka med history så boten kan fortsätta samma ärende
+        body: JSON.stringify({ message: text, history })
       });
 
       const data = await r.json();
@@ -106,7 +120,10 @@ export default function Home() {
         throw new Error("Tomt svar från servern.");
       }
 
-      setLog((l) => [...l, { role: "assistant", text: data.reply, structured: data.structured }]);
+      setLog((l) => [
+        ...l,
+        { role: "assistant", text: data.reply, structured: data.structured }
+      ]);
     } catch (e) {
       setLog((l) => [...l, { role: "assistant", text: `Fel: ${e.message}` }]);
     } finally {
@@ -116,9 +133,32 @@ export default function Home() {
 
   return (
     <main style={{ maxWidth: 860, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
-      <header style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+      <header
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 14
+        }}
+      >
         <div style={{ fontSize: 28 }}>🚢</div>
         <h1 style={{ margin: 0 }}>Tullassistent</h1>
+
+        {/* ✅ Knappen ligger snyggt i headern */}
+        <button
+          onClick={restart}
+          disabled={loading}
+          style={{
+            marginLeft: "auto",
+            padding: "10px 12px",
+            borderRadius: 12,
+            border: "1px solid #e5e7eb",
+            cursor: "pointer"
+          }}
+          title="Rensar chatten och startar nytt ärende"
+        >
+          Nytt ärende
+        </button>
       </header>
 
       <div style={{ border: "1px solid #e5e7eb", borderRadius: 16, padding: 16, background: "#fff" }}>
@@ -178,7 +218,6 @@ export default function Home() {
                   </SectionCard>
                 </div>
               ) : (
-                // Fallback: om structured saknas, visa text ändå men med bättre spacing
                 <div
                   style={{
                     background: "#f3f4f6",
