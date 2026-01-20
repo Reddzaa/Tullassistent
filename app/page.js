@@ -1,6 +1,78 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+function SectionCard({ title, children }) {
+  return (
+    <section
+      style={{
+        border: "1px solid #e5e7eb",
+        borderRadius: 14,
+        padding: 14,
+        background: "white"
+      }}
+    >
+      <div style={{ fontWeight: 800, marginBottom: 10 }}>{title}</div>
+      {children}
+    </section>
+  );
+}
+
+function Bullets({ items }) {
+  if (!Array.isArray(items) || items.length === 0) return <div>—</div>;
+  return (
+    <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 6 }}>
+      {items.map((x, i) => (
+        <li key={i} style={{ lineHeight: 1.35 }}>
+          {x}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CopyBox({ text }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {}
+  }
+
+  return (
+    <div>
+      <div
+        style={{
+          border: "1px solid #e5e7eb",
+          borderRadius: 12,
+          padding: 12,
+          background: "#f9fafb",
+          whiteSpace: "pre-wrap",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+          fontSize: 13,
+          lineHeight: 1.45
+        }}
+      >
+        {text || "—"}
+      </div>
+      <button
+        onClick={copy}
+        style={{
+          marginTop: 8,
+          padding: "10px 12px",
+          borderRadius: 10,
+          border: "1px solid #e5e7eb",
+          cursor: "pointer"
+        }}
+      >
+        {copied ? "Kopierat ✅" : "Kopiera tulltext"}
+      </button>
+    </div>
+  );
+}
 
 export default function Home() {
   const [message, setMessage] = useState("");
@@ -10,14 +82,14 @@ export default function Home() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [log]);
+  }, [log, loading]);
 
   async function send() {
-    if (!message.trim() || loading) return;
-
     const text = message.trim();
-    setMessage("");
+    if (!text || loading) return;
+
     setLog((l) => [...l, { role: "user", text }]);
+    setMessage("");
     setLoading(true);
 
     try {
@@ -28,41 +100,102 @@ export default function Home() {
       });
 
       const data = await r.json();
-      if (!r.ok) throw new Error(data.error);
+      if (!r.ok) throw new Error(data?.error || "Något gick fel");
 
-      setLog((l) => [...l, { role: "assistant", text: data.reply }]);
+      if (!data?.reply || String(data.reply).trim().length === 0) {
+        throw new Error("Tomt svar från servern.");
+      }
+
+      setLog((l) => [...l, { role: "assistant", text: data.reply, structured: data.structured }]);
     } catch (e) {
-      setLog((l) => [
-        ...l,
-        { role: "assistant", text: "⚠️ Något gick fel." }
-      ]);
+      setLog((l) => [...l, { role: "assistant", text: `Fel: ${e.message}` }]);
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main style={{ maxWidth: 760, margin: "40px auto", padding: 16 }}>
-      <h1>🚢 Tullassistent</h1>
+    <main style={{ maxWidth: 860, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
+      <header style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <div style={{ fontSize: 28 }}>🚢</div>
+        <h1 style={{ margin: 0 }}>Tullassistent</h1>
+      </header>
 
-      <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16 }}>
-        {log.map((m, i) => (
-          <div
-            key={i}
-            style={{
-              maxWidth: "80%",
-              margin: "12px 0",
-              marginLeft: m.role === "user" ? "auto" : 0,
-              padding: 12,
-              borderRadius: 12,
-              background: m.role === "user" ? "#0070f3" : "#f2f2f2",
-              color: m.role === "user" ? "white" : "black"
-            }}
-          >
-            {m.text}
-          </div>
-        ))}
-        {loading && <div>✍️ Assistenten skriver…</div>}
+      <div style={{ border: "1px solid #e5e7eb", borderRadius: 16, padding: 16, background: "#fff" }}>
+        {log.length === 0 ? (
+          <p style={{ margin: 0, color: "#6b7280" }}>
+            Beskriv ett ärende (import/export/transit) så ställer jag kontrollfrågor och tar fram HS-kod m.m.
+          </p>
+        ) : (
+          log.map((m, i) => (
+            <div key={i} style={{ margin: "14px 0" }}>
+              <div style={{ fontWeight: 800, marginBottom: 8 }}>
+                {m.role === "user" ? "Du" : "Assistent"}
+              </div>
+
+              {m.role === "user" ? (
+                <div
+                  style={{
+                    marginLeft: "auto",
+                    background: "#2563eb",
+                    color: "white",
+                    padding: 12,
+                    borderRadius: 14,
+                    maxWidth: "85%",
+                    whiteSpace: "pre-wrap"
+                  }}
+                >
+                  {m.text}
+                </div>
+              ) : m.structured ? (
+                <div style={{ display: "grid", gap: 12 }}>
+                  <SectionCard title="1) Saknas / kontrollfrågor">
+                    <Bullets items={m.structured.saknas_kontrollfragor} />
+                  </SectionCard>
+
+                  <SectionCard title="2) Typ av ärende">
+                    <Bullets items={m.structured.typ_av_arende} />
+                  </SectionCard>
+
+                  <SectionCard title="3) HS-kod">
+                    <Bullets items={m.structured.hs_kod} />
+                  </SectionCard>
+
+                  <SectionCard title="4) Andra obligatoriska uppgifter/koder">
+                    <Bullets items={m.structured.andra_uppgifter_koder} />
+                  </SectionCard>
+
+                  <SectionCard title="5) Kopierbar tulltext">
+                    <CopyBox text={m.structured.kopierbar_tulltext} />
+                  </SectionCard>
+
+                  <SectionCard title="6) Checklista">
+                    <Bullets items={m.structured.checklista} />
+                  </SectionCard>
+
+                  <SectionCard title="7) Viktigt att notera">
+                    <Bullets items={m.structured.viktigt_att_notera} />
+                  </SectionCard>
+                </div>
+              ) : (
+                // Fallback: om structured saknas, visa text ändå men med bättre spacing
+                <div
+                  style={{
+                    background: "#f3f4f6",
+                    padding: 12,
+                    borderRadius: 14,
+                    whiteSpace: "pre-wrap",
+                    lineHeight: 1.5
+                  }}
+                >
+                  {m.text}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+
+        {loading && <div style={{ marginTop: 10, color: "#6b7280" }}>✍️ Assistenten skriver…</div>}
         <div ref={bottomRef} />
       </div>
 
@@ -71,11 +204,27 @@ export default function Home() {
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Skriv din fråga…"
-          onKeyDown={(e) => e.key === "Enter" && send()}
-          style={{ flex: 1, padding: 12 }}
+          style={{
+            flex: 1,
+            padding: 12,
+            borderRadius: 12,
+            border: "1px solid #e5e7eb"
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") send();
+          }}
         />
-        <button onClick={send} disabled={loading}>
-          Skicka
+        <button
+          onClick={send}
+          disabled={loading}
+          style={{
+            padding: "12px 16px",
+            borderRadius: 12,
+            border: "1px solid #e5e7eb",
+            cursor: "pointer"
+          }}
+        >
+          {loading ? "Skickar…" : "Skicka"}
         </button>
       </div>
     </main>
