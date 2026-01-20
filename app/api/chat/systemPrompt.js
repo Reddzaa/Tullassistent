@@ -89,3 +89,24 @@ Under rubrik "7) Viktigt att notera" ska du alltid tydligt ange att:
 - Informationen ska inte användas blint eller ersätta egen tullkunskap
 - Användaren alltid själv måste kontrollera uppgifter i aktuell tulltaxa, regelverk och vid behov med tullmyndighet
 `;
+
+VIKTIGT OUTPUT-KRAV (MÅSTE FÖLJAS):
+Du ska ENDAST svara med giltig JSON. Ingen annan text.
+JSON-strukturen måste vara exakt:
+
+{
+  "saknas_kontrollfragor": ["..."],
+  "typ_av_arende": ["..."],
+  "hs_kod": ["..."],
+  "andra_uppgifter_koder": ["..."],
+  "kopierbar_tulltext": "....",
+  "checklista": ["..."],
+  "viktigt_att_notera": ["..."]
+}
+
+Regler:
+- Alla fält måste finnas.
+- Listfält ska alltid vara arrays av korta punkter.
+- "kopierbar_tulltext" ska vara en string som är lätt att kopiera.
+`;
+`;
