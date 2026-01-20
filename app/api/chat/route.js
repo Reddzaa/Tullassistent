@@ -13,7 +13,8 @@ export async function POST(req) {
 
     const system = "Du är en hjälpsam assistent. Svara kort, tydligt och på svenska.";
 
-    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    const r = await fetch("https://api.openai.com/v1/responses", {
+
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
