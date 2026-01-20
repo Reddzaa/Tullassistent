@@ -3,6 +3,42 @@
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+/** --------- Safe helpers (prevent UI crashes) --------- */
+function asArray(x) {
+  if (Array.isArray(x)) return x.filter((v) => typeof v === "string" && v.trim().length);
+  if (typeof x === "string" && x.trim().length) return [x.trim()];
+  return [];
+}
+function asString(x) {
+  return typeof x === "string" ? x : "";
+}
+function normalizeStructured(s) {
+  if (!s || typeof s !== "object") return null;
+
+  const normalized = {
+    saknas_kontrollfragor: asArray(s.saknas_kontrollfragor),
+    typ_av_arende: asArray(s.typ_av_arende),
+    hs_kod: asArray(s.hs_kod),
+    andra_uppgifter_koder: asArray(s.andra_uppgifter_koder),
+    kopierbar_tulltext: asString(s.kopierbar_tulltext),
+    checklista: asArray(s.checklista),
+    viktigt_att_notera: asArray(s.viktigt_att_notera)
+  };
+
+  // Only treat as "valid structured" if at least one field has content
+  const hasAny =
+    normalized.saknas_kontrollfragor.length ||
+    normalized.typ_av_arende.length ||
+    normalized.hs_kod.length ||
+    normalized.andra_uppgifter_koder.length ||
+    normalized.kopierbar_tulltext.trim().length ||
+    normalized.checklista.length ||
+    normalized.viktigt_att_notera.length;
+
+  return hasAny ? normalized : null;
+}
+
+/** --------- UI components --------- */
 function IconButton({ onClick, disabled, title, children }) {
   return (
     <button
@@ -41,10 +77,11 @@ function SectionCard({ title, children }) {
 }
 
 function Bullets({ items }) {
-  if (!Array.isArray(items) || items.length === 0) return <div style={{ color: "var(--muted)" }}>—</div>;
+  const safe = asArray(items);
+  if (safe.length === 0) return <div style={{ color: "var(--muted)" }}>—</div>;
   return (
     <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 8 }}>
-      {items.map((x, i) => (
+      {safe.map((x, i) => (
         <li key={i} style={{ lineHeight: 1.4 }}>
           {x}
         </li>
@@ -54,11 +91,12 @@ function Bullets({ items }) {
 }
 
 function CopyBox({ text }) {
+  const safeText = asString(text);
   const [copied, setCopied] = useState(false);
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(text || "");
+      await navigator.clipboard.writeText(safeText || "");
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     } catch {}
@@ -78,7 +116,7 @@ function CopyBox({ text }) {
           lineHeight: 1.5
         }}
       >
-        {text || "—"}
+        {safeText || "—"}
       </div>
 
       <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
@@ -101,12 +139,12 @@ function CopyBox({ text }) {
 
 export default function Home() {
   const [message, setMessage] = useState("");
-  const [log, setLog] = useState([]);
+  const [log, setLog] = useState([]); // { role: "user"|"assistant", text: string, structured?: object|null }
   const [loading, setLoading] = useState(false);
   const [theme, setTheme] = useState("system"); // "light" | "dark" | "system"
   const bottomRef = useRef(null);
 
-  // ---- Theme handling (no extra libs)
+  /** ---- Theme handling (no extra libs) ---- */
   useEffect(() => {
     const saved = localStorage.getItem("theme");
     if (saved === "light" || saved === "dark" || saved === "system") setTheme(saved);
@@ -118,18 +156,12 @@ export default function Home() {
     const root = document.documentElement;
     const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
 
-    const resolved =
-      theme === "system" ? (prefersDark ? "dark" : "light") : theme;
-
+    const resolved = theme === "system" ? (prefersDark ? "dark" : "light") : theme;
     root.dataset.theme = resolved;
   }, [theme]);
 
   function toggleTheme() {
-    setTheme((t) => {
-      if (t === "system") return "dark";
-      if (t === "dark") return "light";
-      return "system";
-    });
+    setTheme((t) => (t === "system" ? "dark" : t === "dark" ? "light" : "system"));
   }
 
   const themeLabel = useMemo(() => {
@@ -148,11 +180,22 @@ export default function Home() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [log, loading]);
 
+  async function safeJson(r) {
+    try {
+      return await r.json();
+    } catch {
+      return null;
+    }
+  }
+
   async function send() {
     const text = message.trim();
     if (!text || loading) return;
 
-    const history = log.map((m) => ({ role: m.role, content: m.text }));
+    // Keep history bounded so requests don't grow forever
+    const history = log
+      .slice(-12)
+      .map((m) => ({ role: m.role, content: String(m.text || "") }));
 
     setLog((l) => [...l, { role: "user", text }]);
     setMessage("");
@@ -165,16 +208,17 @@ export default function Home() {
         body: JSON.stringify({ message: text, history })
       });
 
-      const data = await r.json();
-      if (!r.ok) throw new Error(data?.error || "Något gick fel");
+      const data = await safeJson(r);
+      if (!r.ok) throw new Error(data?.error || `Serverfel (${r.status})`);
 
-      if (!data?.reply || String(data.reply).trim().length === 0) {
-        throw new Error("Tomt svar från servern.");
-      }
+      const reply = String(data?.reply || "").trim();
+      if (!reply) throw new Error("Tomt svar från servern.");
 
-      setLog((l) => [...l, { role: "assistant", text: data.reply, structured: data.structured }]);
+      const normalized = normalizeStructured(data?.structured);
+
+      setLog((l) => [...l, { role: "assistant", text: reply, structured: normalized }]);
     } catch (e) {
-      setLog((l) => [...l, { role: "assistant", text: `Fel: ${e.message}` }]);
+      setLog((l) => [...l, { role: "assistant", text: `Fel: ${e?.message || "Okänt fel"}` }]);
     } finally {
       setLoading(false);
     }
@@ -193,7 +237,6 @@ export default function Home() {
           boxShadow: "var(--shadow)"
         }}
       >
-        {/* Lägg bilden i /public/svinesund.jpg */}
         <Image
           src="/svinesund.jpg"
           alt="Svinesundsbron mellan Sverige och Norge"
@@ -201,7 +244,7 @@ export default function Home() {
           priority
           style={{ objectFit: "cover" }}
         />
-        {/* overlay */}
+
         <div
           style={{
             position: "absolute",
@@ -211,16 +254,8 @@ export default function Home() {
           }}
         />
 
-        {/* Title area */}
         <div style={{ position: "absolute", left: 18, right: 18, bottom: 18 }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              justifyContent: "space-between"
-            }}
-          >
+          <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ fontSize: 26 }}>🚚</div>
@@ -333,17 +368,12 @@ export default function Home() {
         {loading && <div style={{ marginTop: 10, color: "var(--muted)" }}>✍️ Assistenten skriver…</div>}
         <div ref={bottomRef} />
 
-        {/* Input row */}
         <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
           <input
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Skriv din fråga…"
-            style={{
-              flex: 1,
-              padding: 12,
-              borderRadius: 16
-            }}
+            style={{ flex: 1, padding: 12, borderRadius: 16 }}
             onKeyDown={(e) => {
               if (e.key === "Enter") send();
             }}
