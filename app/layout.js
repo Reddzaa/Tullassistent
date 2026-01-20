@@ -1,12 +1,14 @@
+import "./globals.css";
+
 export const metadata = {
   title: "Tullassistent",
-  description: "En enkel tull- och importassistent.",
+  description: "Svensk–norsk tull, import, export och transiter"
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="sv">
-      <body style={{ margin: 0 }}>{children}</body>
+    <html lang="sv" suppressHydrationWarning>
+      <body>{children}</body>
     </html>
   );
 }
