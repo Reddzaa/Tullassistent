@@ -15,6 +15,40 @@ function json(res, status = 200) {
   });
 }
 
+/**
+ * Robust text-extraction for Responses API.
+ * - supports data.output_text
+ * - supports data.output[].content[].{type:"output_text", text:"..."} (or "text")
+ */
+function extractResponseText(data) {
+  if (!data) return "";
+
+  if (typeof data.output_text === "string" && data.output_text.trim()) {
+    return data.output_text;
+  }
+
+  const out = data.output;
+  if (!Array.isArray(out)) return "";
+
+  let acc = "";
+
+  for (const item of out) {
+    // Most common: item.content is array
+    const content = item?.content;
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        if (part?.type === "output_text" && typeof part?.text === "string") acc += part.text;
+        if (part?.type === "text" && typeof part?.text === "string") acc += part.text;
+      }
+    }
+
+    // Rare fallbacks
+    if (typeof item?.text === "string") acc += item.text;
+  }
+
+  return acc.trim();
+}
+
 async function callOpenAI({ apiKey, model, system, user }) {
   const r = await fetch(OPENAI_URL, {
     method: "POST",
@@ -32,12 +66,13 @@ async function callOpenAI({ apiKey, model, system, user }) {
   });
 
   const data = await r.json().catch(() => null);
+
   if (!r.ok) {
     const msg = data?.error?.message || `OpenAI error (${r.status})`;
     throw new Error(msg);
   }
 
-  return data?.output_text || "";
+  return extractResponseText(data);
 }
 
 // --- Robust JSON parsing: klarar ```json ...``` + extra text runt JSON
@@ -96,7 +131,7 @@ export async function POST(req) {
 
     const model = "gpt-4o-mini";
 
-    // 1) PM: avgör om vi ska fråga mer eller fortsätta
+    // 1) PM
     const pmRaw = await callOpenAI({
       apiKey,
       model,
@@ -107,7 +142,7 @@ export async function POST(req) {
     const pm = safeParseJson(pmRaw);
     const nextStep = pm?.next_step === "ASK_MORE" ? "ASK_MORE" : "PROCEED";
 
-    // 2) Tull-expert: gör innehåll
+    // 2) Tull-expert
     const expertInput = [`PM output:\n${pmRaw}`, `\n---\n`, `Underlag:\n${userPacket}`].join("");
 
     const expertDraft = await callOpenAI({
@@ -125,7 +160,7 @@ export async function POST(req) {
       user: expertDraft
     });
 
-    // 4) Formatterare: tvinga JSON enligt schema
+    // 4) Formatterare
     const formattedJsonText = await callOpenAI({
       apiKey,
       model,
@@ -135,21 +170,28 @@ export async function POST(req) {
 
     const structured = safeParseJson(formattedJsonText);
 
+    const lengths = {
+      pmRaw: (pmRaw || "").length,
+      expertDraft: (expertDraft || "").length,
+      riskReviewed: (riskReviewed || "").length,
+      formattedJsonText: (formattedJsonText || "").length
+    };
+
     if (structured && typeof structured === "object") {
       return json({
         reply: "OK",
         structured,
-        meta: { stage: "parsed_formatter_json", nextStep }
+        meta: { stage: "parsed_formatter_json", nextStep, lengths }
       });
     }
 
-    // Fallback om formatteraren råkar ge icke-JSON:
     return json({
       reply: formattedJsonText || riskReviewed || expertDraft || "Tomt svar",
       structured: null,
       meta: {
-        stage: "formatter_not_json",
+        stage: "formatter_not_json_or_empty",
         nextStep,
+        lengths,
         formattedPreview: String(formattedJsonText || "").slice(0, 400)
       }
     });
