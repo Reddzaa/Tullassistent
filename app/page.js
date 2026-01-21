@@ -13,6 +13,41 @@ function asString(x) {
   return typeof x === "string" ? x : "";
 }
 
+/** ---- Pretty formatting for chat replies ----
+ * - preserves existing newlines
+ * - adds spacing after bullets/numbered items
+ * - optionally splits long text a bit nicer (safe-ish)
+ */
+function prettifyText(text) {
+  if (!text) return "";
+  let t = String(text);
+
+  // Normalize newlines
+  t = t.replace(/\r\n/g, "\n");
+
+  // Ensure blank line before numbered headings like "1) ..." or "1. ..."
+  t = t.replace(/(^|\n)(\d+\)\s+)/g, "\n\n$2");
+  t = t.replace(/(^|\n)(\d+\.\s+)/g, "\n\n$2");
+
+  // Put bullets on their own lines if user/model jammed them together
+  t = t.replace(/\s•\s/g, "\n• ");
+  t = t.replace(/\s-\s/g, "\n- ");
+
+  // Add an extra newline after each bullet line for readability (but don't overdo)
+  t = t.replace(/(\n[•-]\s[^\n]+)\n(?!\n)/g, "$1\n\n");
+
+  // Add spacing after sentences in very long paragraphs (light touch)
+  // Only when there are no newlines at all
+  if (!t.includes("\n")) {
+    t = t.replace(/\. (?!\d)/g, ".\n\n");
+  }
+
+  // Trim excessive leading newlines
+  t = t.replace(/^\n+/, "");
+
+  return t;
+}
+
 function normalizeStructured(s) {
   if (!s || typeof s !== "object") return null;
 
@@ -29,7 +64,6 @@ function normalizeStructured(s) {
     viktigt_att_notera: asArray(s.viktigt_att_notera)
   };
 
-  // valid if it has at least "svar" or any other content
   const hasAny =
     normalized.svar.trim().length ||
     normalized.saknas_kontrollfragor.length ||
@@ -145,7 +179,6 @@ function CopyBox({ text }) {
 function Details({ structured }) {
   const [open, setOpen] = useState(false);
 
-  // hide details if basically empty
   const hasDetails =
     structured.saknas_kontrollfragor.length ||
     structured.typ_av_arende.length ||
@@ -280,12 +313,13 @@ export default function Home() {
 
       const normalized = normalizeStructured(data?.structured);
 
-      // NEW: prefer structured.svar as the human chat reply
-      const reply =
+      const rawReply =
         (normalized?.svar && normalized.svar.trim()) ||
         String(data?.reply || "").trim();
 
-      if (!reply) throw new Error("Tomt svar från servern.");
+      if (!rawReply) throw new Error("Tomt svar från servern.");
+
+      const reply = prettifyText(rawReply);
 
       setLog((l) => [
         ...l,
@@ -371,7 +405,7 @@ export default function Home() {
       >
         {log.length === 0 ? (
           <div style={{ color: "var(--muted)", lineHeight: 1.5 }}>
-            Beskriv ett ärende (import/export/transit). Jag svarar först kort och tydligt — och du kan öppna “Visa detaljer” vid behov.
+            Beskriv ett ärende (import/export/transit). Jag svarar först tydligt och “chatigt” — och du kan öppna <b>Visa detaljer</b> vid behov.
           </div>
         ) : (
           log.map((m, i) => (
@@ -397,15 +431,16 @@ export default function Home() {
                 </div>
               ) : (
                 <div>
-                  {/* Main assistant reply bubble */}
+                  {/* Main assistant reply bubble (chatty) */}
                   <div
                     style={{
-                      background: "var(--code-bg)",
-                      padding: 12,
+                      background: "var(--panel)",
+                      padding: 16,
                       borderRadius: 18,
                       whiteSpace: "pre-wrap",
-                      lineHeight: 1.6,
-                      border: "1px solid var(--border)"
+                      lineHeight: 1.7,
+                      border: "1px solid var(--border)",
+                      boxShadow: "var(--shadow)"
                     }}
                   >
                     {m.text}
