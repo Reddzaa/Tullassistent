@@ -4,7 +4,7 @@ import {
   TULL_EXPERT_PROMPT,
   RISK_CONTROL_PROMPT,
   FORMATTER_PROMPT
-} from "@/prompts/agents";
+} from "../../../../prompts/agents";
 
 // Om du inte har alias för "@/prompts", använd istället:
 // import { PM_PROMPT, ... } from "../../../prompts/agents";
