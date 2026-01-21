@@ -12,10 +12,49 @@ function asArray(x) {
 function asString(x) {
   return typeof x === "string" ? x : "";
 }
+
+/** ---- Pretty formatting for chat replies ----
+ * - preserves existing newlines
+ * - adds spacing after bullets/numbered items
+ * - optionally splits long text a bit nicer (safe-ish)
+ */
+function prettifyText(text) {
+  if (!text) return "";
+  let t = String(text);
+
+  // Normalize newlines
+  t = t.replace(/\r\n/g, "\n");
+
+  // Ensure blank line before numbered headings like "1) ..." or "1. ..."
+  t = t.replace(/(^|\n)(\d+\)\s+)/g, "\n\n$2");
+  t = t.replace(/(^|\n)(\d+\.\s+)/g, "\n\n$2");
+
+  // Put bullets on their own lines if user/model jammed them together
+  t = t.replace(/\s•\s/g, "\n• ");
+  t = t.replace(/\s-\s/g, "\n- ");
+
+  // Add an extra newline after each bullet line for readability (but don't overdo)
+  t = t.replace(/(\n[•-]\s[^\n]+)\n(?!\n)/g, "$1\n\n");
+
+  // Add spacing after sentences in very long paragraphs (light touch)
+  // Only when there are no newlines at all
+  if (!t.includes("\n")) {
+    t = t.replace(/\. (?!\d)/g, ".\n\n");
+  }
+
+  // Trim excessive leading newlines
+  t = t.replace(/^\n+/, "");
+
+  return t;
+}
+
 function normalizeStructured(s) {
   if (!s || typeof s !== "object") return null;
 
   const normalized = {
+    // NEW
+    svar: asString(s.svar),
+
     saknas_kontrollfragor: asArray(s.saknas_kontrollfragor),
     typ_av_arende: asArray(s.typ_av_arende),
     hs_kod: asArray(s.hs_kod),
@@ -25,8 +64,8 @@ function normalizeStructured(s) {
     viktigt_att_notera: asArray(s.viktigt_att_notera)
   };
 
-  // Only treat as "valid structured" if at least one field has content
   const hasAny =
+    normalized.svar.trim().length ||
     normalized.saknas_kontrollfragor.length ||
     normalized.typ_av_arende.length ||
     normalized.hs_kod.length ||
@@ -137,11 +176,76 @@ function CopyBox({ text }) {
   );
 }
 
+function Details({ structured }) {
+  const [open, setOpen] = useState(false);
+
+  const hasDetails =
+    structured.saknas_kontrollfragor.length ||
+    structured.typ_av_arende.length ||
+    structured.hs_kod.length ||
+    structured.andra_uppgifter_koder.length ||
+    structured.kopierbar_tulltext.trim().length ||
+    structured.checklista.length ||
+    structured.viktigt_att_notera.length;
+
+  if (!hasDetails) return null;
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          border: "1px solid var(--border)",
+          background: "var(--panel)",
+          borderRadius: 14,
+          padding: "10px 12px",
+          cursor: "pointer",
+          boxShadow: "var(--shadow)"
+        }}
+      >
+        {open ? "Dölj detaljer" : "Visa detaljer"}
+      </button>
+
+      {open && (
+        <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+          <SectionCard title="1) Saknas / kontrollfrågor">
+            <Bullets items={structured.saknas_kontrollfragor} />
+          </SectionCard>
+
+          <SectionCard title="2) Typ av ärende">
+            <Bullets items={structured.typ_av_arende} />
+          </SectionCard>
+
+          <SectionCard title="3) HS-kod">
+            <Bullets items={structured.hs_kod} />
+          </SectionCard>
+
+          <SectionCard title="4) Andra obligatoriska uppgifter/koder">
+            <Bullets items={structured.andra_uppgifter_koder} />
+          </SectionCard>
+
+          <SectionCard title="5) Kopierbar tulltext">
+            <CopyBox text={structured.kopierbar_tulltext} />
+          </SectionCard>
+
+          <SectionCard title="6) Checklista">
+            <Bullets items={structured.checklista} />
+          </SectionCard>
+
+          <SectionCard title="7) Viktigt att notera">
+            <Bullets items={structured.viktigt_att_notera} />
+          </SectionCard>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
   const [message, setMessage] = useState("");
-  const [log, setLog] = useState([]); // { role: "user"|"assistant", text: string, structured?: object|null }
+  const [log, setLog] = useState([]); // { role, text, structured? }
   const [loading, setLoading] = useState(false);
-  const [theme, setTheme] = useState("system"); // "light" | "dark" | "system"
+  const [theme, setTheme] = useState("system");
   const bottomRef = useRef(null);
 
   /** ---- Theme handling (no extra libs) ---- */
@@ -155,7 +259,6 @@ export default function Home() {
 
     const root = document.documentElement;
     const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
-
     const resolved = theme === "system" ? (prefersDark ? "dark" : "light") : theme;
     root.dataset.theme = resolved;
   }, [theme]);
@@ -192,17 +295,14 @@ export default function Home() {
     const text = message.trim();
     if (!text || loading) return;
 
-    // Keep history bounded so requests don't grow forever
-    const history = log
-      .slice(-12)
-      .map((m) => ({ role: m.role, content: String(m.text || "") }));
+    const history = log.slice(-12).map((m) => ({ role: m.role, content: String(m.text || "") }));
 
     setLog((l) => [...l, { role: "user", text }]);
     setMessage("");
     setLoading(true);
 
     try {
-      const r = await fetch("/api/chat", {
+      const r = await fetch("/api/orchestrate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, history })
@@ -211,12 +311,24 @@ export default function Home() {
       const data = await safeJson(r);
       if (!r.ok) throw new Error(data?.error || `Serverfel (${r.status})`);
 
-      const reply = String(data?.reply || "").trim();
-      if (!reply) throw new Error("Tomt svar från servern.");
-
       const normalized = normalizeStructured(data?.structured);
 
-      setLog((l) => [...l, { role: "assistant", text: reply, structured: normalized }]);
+      const rawReply =
+        (normalized?.svar && normalized.svar.trim()) ||
+        String(data?.reply || "").trim();
+
+      if (!rawReply) throw new Error("Tomt svar från servern.");
+
+      const reply = prettifyText(rawReply);
+
+      setLog((l) => [
+        ...l,
+        {
+          role: "assistant",
+          text: reply,
+          structured: normalized
+        }
+      ]);
     } catch (e) {
       setLog((l) => [...l, { role: "assistant", text: `Fel: ${e?.message || "Okänt fel"}` }]);
     } finally {
@@ -293,7 +405,7 @@ export default function Home() {
       >
         {log.length === 0 ? (
           <div style={{ color: "var(--muted)", lineHeight: 1.5 }}>
-            Beskriv ett ärende (import/export/transit). Jag börjar alltid med kontrollfrågor, därefter HS6, krav, tulltext och checklista.
+            Beskriv ett ärende (import/export/transit). Jag svarar först tydligt och “chatigt” — och du kan öppna <b>Visa detaljer</b> vid behov.
           </div>
         ) : (
           log.map((m, i) => (
@@ -317,48 +429,25 @@ export default function Home() {
                 >
                   {m.text}
                 </div>
-              ) : m.structured ? (
-                <div style={{ display: "grid", gap: 12 }}>
-                  <SectionCard title="1) Saknas / kontrollfrågor">
-                    <Bullets items={m.structured.saknas_kontrollfragor} />
-                  </SectionCard>
-
-                  <SectionCard title="2) Typ av ärende">
-                    <Bullets items={m.structured.typ_av_arende} />
-                  </SectionCard>
-
-                  <SectionCard title="3) HS-kod">
-                    <Bullets items={m.structured.hs_kod} />
-                  </SectionCard>
-
-                  <SectionCard title="4) Andra obligatoriska uppgifter/koder">
-                    <Bullets items={m.structured.andra_uppgifter_koder} />
-                  </SectionCard>
-
-                  <SectionCard title="5) Kopierbar tulltext">
-                    <CopyBox text={m.structured.kopierbar_tulltext} />
-                  </SectionCard>
-
-                  <SectionCard title="6) Checklista">
-                    <Bullets items={m.structured.checklista} />
-                  </SectionCard>
-
-                  <SectionCard title="7) Viktigt att notera">
-                    <Bullets items={m.structured.viktigt_att_notera} />
-                  </SectionCard>
-                </div>
               ) : (
-                <div
-                  style={{
-                    background: "var(--code-bg)",
-                    padding: 12,
-                    borderRadius: 18,
-                    whiteSpace: "pre-wrap",
-                    lineHeight: 1.55,
-                    border: "1px solid var(--border)"
-                  }}
-                >
-                  {m.text}
+                <div>
+                  {/* Main assistant reply bubble (chatty) */}
+                  <div
+                    style={{
+                      background: "var(--panel)",
+                      padding: 16,
+                      borderRadius: 18,
+                      whiteSpace: "pre-wrap",
+                      lineHeight: 1.7,
+                      border: "1px solid var(--border)",
+                      boxShadow: "var(--shadow)"
+                    }}
+                  >
+                    {m.text}
+                  </div>
+
+                  {/* Optional expandable details */}
+                  {m.structured ? <Details structured={m.structured} /> : null}
                 </div>
               )}
             </div>
