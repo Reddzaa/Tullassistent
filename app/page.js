@@ -202,7 +202,7 @@ export default function Home() {
     setLoading(true);
 
     try {
-      const r = await fetch("/api/chat", {
+      const r = await fetch("/api/orchestrate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, history })
