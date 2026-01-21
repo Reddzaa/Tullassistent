@@ -6,9 +6,6 @@ import {
   FORMATTER_PROMPT
 } from "@/prompts/agents";
 
-// Om du inte har alias för "@/prompts", använd istället:
-// import { PM_PROMPT, ... } from "../../../prompts/agents";
-
 const OPENAI_URL = "https://api.openai.com/v1/responses";
 
 function json(res, status = 200) {
@@ -43,12 +40,33 @@ async function callOpenAI({ apiKey, model, system, user }) {
   return data?.output_text || "";
 }
 
-function safeParseJson(text) {
+// --- Robust JSON parsing: klarar ```json ...``` + extra text runt JSON
+function extractJsonObject(text) {
+  if (!text || typeof text !== "string") return null;
+
+  const cleaned = text
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  // 1) Försök direkt
   try {
-    return JSON.parse(text);
+    return JSON.parse(cleaned);
+  } catch {}
+
+  // 2) Plocka ut första {...} blocket
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+
+  try {
+    return JSON.parse(match[0]);
   } catch {
     return null;
   }
+}
+
+function safeParseJson(text) {
+  return extractJsonObject(text);
 }
 
 export async function POST(req) {
@@ -68,7 +86,10 @@ export async function POST(req) {
     // Begränsa historik så requests inte sväller
     const history = Array.isArray(body?.history) ? body.history.slice(-12) : [];
     const historyText = history
-      .map((m) => `- ${m?.role === "user" ? "User" : "Assistant"}: ${String(m?.content || "").slice(0, 1200)}`)
+      .map(
+        (m) =>
+          `- ${m?.role === "user" ? "User" : "Assistant"}: ${String(m?.content || "").slice(0, 1200)}`
+      )
       .join("\n");
 
     const userPacket = `Historik (kort):\n${historyText || "(ingen)"}\n\nSenaste användarmeddelande:\n${message}`;
@@ -84,16 +105,10 @@ export async function POST(req) {
     });
 
     const pm = safeParseJson(pmRaw);
-    // Om PM inte gav giltig JSON, fall back till "PROCEED"
     const nextStep = pm?.next_step === "ASK_MORE" ? "ASK_MORE" : "PROCEED";
 
     // 2) Tull-expert: gör innehåll
-    // Om PM säger ASK_MORE vill vi fortfarande låta experten formulera kontrollfrågorna bra.
-    const expertInput = [
-      `PM output:\n${pmRaw}`,
-      `\n---\n`,
-      `Underlag:\n${userPacket}`
-    ].join("");
+    const expertInput = [`PM output:\n${pmRaw}`, `\n---\n`, `Underlag:\n${userPacket}`].join("");
 
     const expertDraft = await callOpenAI({
       apiKey,
@@ -120,13 +135,11 @@ export async function POST(req) {
 
     const structured = safeParseJson(formattedJsonText);
 
-    // Reply: vi skickar alltid tillbaka något som UI kan visa
-    // - om structured parseas: reply kan vara den JSON-strängen (för debug) eller tom
-    // - annars: fallback till rå formatter-text
     if (structured && typeof structured === "object") {
       return json({
         reply: "OK",
-        structured
+        structured,
+        meta: { stage: "parsed_formatter_json", nextStep }
       });
     }
 
@@ -134,10 +147,13 @@ export async function POST(req) {
     return json({
       reply: formattedJsonText || riskReviewed || expertDraft || "Tomt svar",
       structured: null,
-      meta: { nextStep }
+      meta: {
+        stage: "formatter_not_json",
+        nextStep,
+        formattedPreview: String(formattedJsonText || "").slice(0, 400)
+      }
     });
   } catch (e) {
     return json({ error: e?.message || "Server error" }, 500);
   }
 }
-
