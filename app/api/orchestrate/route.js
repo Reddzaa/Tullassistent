@@ -129,7 +129,7 @@ export async function POST(req) {
 
     const userPacket = `Historik (kort):\n${historyText || "(ingen)"}\n\nSenaste användarmeddelande:\n${message}`;
 
-    const model = "gpt-4o-mini";
+    const model = "gpt-4o";
 
     // 1) PM
     const pmRaw = await callOpenAI({
